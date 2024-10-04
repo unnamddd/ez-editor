@@ -1,5 +1,6 @@
 import type { ChangeEvent, RefObject } from 'react'
 import React, { useEffect, useReducer, useRef, useState } from 'react'
+import DragIcon from './DragIcon'
 
 // Example components that can be inserted
 function CustomComponent1(): React.ReactNode {
@@ -233,39 +234,36 @@ function Editor(): React.ReactNode {
   const renderBlock = (block: any, index: any): React.ReactNode => {
     if (block.type === 'text') {
       return (
-        focused === index
-          ? (
-              <textarea
-                autoFocus
-                key={block.id}
-                className="ez-bg-transparent ez-outline-none ez-border-none ez-w-full ez-box-border ez-resize-none ez-overflow-hidden"
-                style={{
-                  background: 'transparent',
-                  outline: 'none',
-                  border: 'none',
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  resize: 'none',
-                  overflow: 'hidden',
-                }}
-                rows={1}
-                value={block.content}
-                onChange={e => handleInput(e, block.id)}
-                onKeyDown={e => handleKeyDown(e, block.id, index)}
-                ref={el => (blockRefs.current[block.id] = el as any)}
-              />
-            )
-          : (
-              <div
-                key={block.id}
-                ref={el => (blockRefs.current[block.id] = el as any)}
-                tabIndex={-1}
-                onFocus={() => setFocused(index)}
-                style={{ minHeight: '20px', padding: '5px' }}
-              >
-                {block.content}
-              </div>
-            )
+        <div
+          key={block.id}
+          className="ez-flex ez-gap-2 ez-w-full ez-text-xl ez-h-max"
+        >
+          <DragIcon width={32} height={32} className="" />
+          {focused === index
+            ? (
+                <textarea
+                  autoFocus
+                  className="ez-bg-transparent ez-outline-none ez-border-none ez-w-full ez-box-border ez-resize-none ez-overflow-hidden"
+                  rows={1}
+                  value={block.content}
+                  onChange={e => handleInput(e, block.id)}
+                  onKeyDown={e => handleKeyDown(e, block.id, index)}
+                  ref={el => (blockRefs.current[block.id] = el as any)}
+                />
+              )
+            : (
+                <button
+                  ref={el => (blockRefs.current[block.id] = el as any)}
+                  className="ez-whitespace-pre-wrap ez-w-full ez-text-start ez-cursor-text"
+                  tabIndex={0}
+                  onClick={() => setFocused(index)}
+                  onFocus={() => setFocused(index)}
+                  type="button"
+                >
+                  {block.content}
+                </button>
+              )}
+        </div>
       )
     }
     else if (block.type === 'component') {
@@ -280,10 +278,13 @@ function Editor(): React.ReactNode {
   }
 
   return (
-    <div style={{ position: 'relative', border: '1px solid #ccc', padding: '10px' }}>
+    <div
+      className="ez-h-full ez-flex ez-flex-col ez-gap-2 ez-rounded-xl ez-relative ez-border-solid ez-border-zinc-200 ez-border-2 ez-p-4 ez-overflow-auto"
+    >
       {blocks.map((block: any, index: any) => renderBlock(block, index))}
       {showMenu && (
         <ul
+          className="ez-flex ez-gap-2"
           style={{
             position: 'absolute',
             top: menuPosition.y + window.scrollY,
