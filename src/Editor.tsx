@@ -86,6 +86,8 @@ function Editor(): React.ReactNode {
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 })
   const [currentBlockId, setCurrentBlockId] = useState(null)
 
+  const caretPosition = useRef<number>(null!)
+
   const blockRefs = useRef<Record<string, HTMLDivElement | HTMLInputElement>>({})
   const [pendingFocusBlockId, setPendingFocusBlockId] = useState(null)
 
@@ -141,28 +143,71 @@ function Editor(): React.ReactNode {
     sendCollaborativeUpdate(updatedBlocks)
   }
 
-  const handleInput = (e: any, blockId: any): void => {
-    // Update the state without causing re-renders of the contentEditable div
-    const text = e.currentTarget.value
+  const getCaretPosition = (): number => {
+    const selection = window.getSelection()
+    return selection?.anchorOffset ?? 0
+  }
 
-    updateBlockContent(blockId, text)
+  const handleEditableClick = (): void => {
+    caretPosition.current = getCaretPosition()
+  }
 
-    // Check for trigger pattern
+  const setCaretPosition = (editableDiv: any, position: any): void => {
+    const range = document.createRange()
     const selection = window.getSelection()
     if (!selection)
       return
-    const range = selection.getRangeAt(0)
-    const textBeforeCaret = text.substring(0, range.startOffset)
 
-    if (textBeforeCaret.endsWith('/')) {
-      const rect = range.getBoundingClientRect()
-      setMenuPosition({ x: rect.left, y: rect.bottom })
-      setShowMenu(true)
-      setCurrentBlockId(blockId)
-    }
-    else {
-      setShowMenu(false)
-    }
+    // Get the text node inside the div
+    const textNode = editableDiv.firstChild
+
+    // Ensure position is within bounds of the text node
+    const validPosition = Math.min(position, textNode.length)
+
+    // Set caret at the new position
+    range.setStart(textNode, validPosition)
+    range.setEnd(textNode, validPosition)
+
+    // Clear any previous selections and apply the new range
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
+
+  const handleInput = (e: any, blockId: any): void => {
+    // Update the state without causing re-renders of the contentEditable div
+
+    const text = e.data
+    const element = e.currentTarget
+    e.preventDefault()
+
+    updateBlockContent(blockId, text)
+    console.dir(e.currentTarget?.firstChild)
+
+    queueMicrotask(() => {
+      setCaretPosition(element, caretPosition.current)
+    })
+
+    // Check for trigger pattern
+    // const newRange = document.createRange()
+    // newRange.setStart(e.currentTarget.firstChild, text.length - 1)
+    // newRange.collapse(true)
+    // const selection = window.getSelection()
+    // if (!selection)
+    //  return
+    // selection.removeAllRanges()
+    // selection.addRange(newRange)
+    // const range = selection.getRangeAt(0)
+    // const textBeforeCaret = text.substring(0, range.startOffset)
+    //
+    // if (textBeforeCaret.endsWith('/')) {
+    //  const rect = range.getBoundingClientRect()
+    //  setMenuPosition({ x: rect.left, y: rect.bottom })
+    //  setShowMenu(true)
+    //  setCurrentBlockId(blockId)
+    // }
+    // else {
+    //  setShowMenu(false)
+    // }
   }
 
   const insertComponent = (componentType: any): void => {
@@ -236,33 +281,45 @@ function Editor(): React.ReactNode {
       return (
         <div
           key={block.id}
-          className="ez-flex ez-gap-2 ez-w-full ez-text-xl ez-h-max"
+          className="
+            before:ez--ml-1 before:ez-absolute before:ez-rounded-md focus-within:before:ez-block focus-within:before:ez-bg-cyan-200 before:ez-h-full before:ez-w-1
+            ez-relative ez-flex ez-gap-2 ez-w-full ez-text-xl ez-h-max ez-items-center
+          "
         >
-          <DragIcon width={32} height={32} className="" />
-          {focused === index
-            ? (
-                <textarea
-                  autoFocus
-                  className="ez-bg-transparent ez-outline-none ez-border-none ez-w-full ez-box-border ez-resize-none ez-overflow-hidden"
-                  rows={1}
-                  value={block.content}
-                  onChange={e => handleInput(e, block.id)}
-                  onKeyDown={e => handleKeyDown(e, block.id, index)}
-                  ref={el => (blockRefs.current[block.id] = el as any)}
-                />
-              )
-            : (
-                <button
-                  ref={el => (blockRefs.current[block.id] = el as any)}
-                  className="ez-whitespace-pre-wrap ez-w-full ez-text-start ez-cursor-text"
-                  tabIndex={0}
-                  onClick={() => setFocused(index)}
-                  onFocus={() => setFocused(index)}
-                  type="button"
-                >
-                  {block.content}
-                </button>
-              )}
+          <button type="button">
+            <DragIcon width={32} height={32} className="" />
+          </button>
+          {
+            // focused === index
+            // ? (
+            //    <textarea
+            //      autoFocus
+            //      className="ez-bg-transparent ez-outline-none ez-border-none ez-w-full ez-box-border ez-resize-none ez-overflow-hidden"
+            //      rows={1}
+            //      value={block.content}
+            //      onChange={e => handleInput(e, block.id)}
+            //      onKeyDown={e => handleKeyDown(e, block.id, index)}
+            //      ref={el => (blockRefs.current[block.id] = el as any)}
+            //    />
+            //  )
+            // :
+            (
+              <div
+                ref={el => (blockRefs.current[block.id] = el as any)}
+                className="ez-bg-transparent ez-outline-none ez-border-none ez-whitespace-pre-wrap ez-w-full ez-h-full ez-text-start ez-cursor-text ez-min-w-0 ez-flex-grow ez-caret-transparent"
+                tabIndex={0}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={e => handleInput(e, block.id)}
+                onBeforeInput={e => handleInput(e, block.id)}
+                onClick={handleEditableClick}
+                onKeyDown={e => handleKeyDown(e, block.id, index)}
+                onFocus={() => setFocused(index)}
+              >
+                {block.content}
+              </div>
+            )
+          }
         </div>
       )
     }
@@ -300,13 +357,29 @@ function Editor(): React.ReactNode {
           <li onClick={() => insertComponent('Component2')}>Insert Image</li>
         </ul>
       )}
-      <div style={{ marginTop: '10px' }}>
-        <button onClick={handleUndo} type="button" disabled={state.past.length === 0}>
+      <div className="ez-flex ez-gap-4">
+        <button
+          onClick={handleUndo}
+          type="button"
+          className="ez-text-black ez-bg-zinc-100 disabled:ez-bg-zinc-200 disabled:ez-text-zinc-400 ez-px-4 ez-py-1 ez-cursor-pointer ez-rounded-lg"
+          disabled={state.past.length === 0}
+        >
           Undo
         </button>
-        <button onClick={handleRedo} type="button" disabled={state.future.length === 0}>
+        <button
+          className="ez-text-black ez-bg-zinc-100 disabled:ez-bg-zinc-200 disabled:ez-text-zinc-400 ez-px-4 ez-py-1 ez-cursor-pointer ez-rounded-lg"
+          onClick={handleRedo}
+          type="button"
+          disabled={state.future.length === 0}
+        >
           Redo
         </button>
+      </div>
+
+      <div id="toolbar" className='ez-fixed ez-left-0 ez-top-0 ez-p-2 ez-flex ez-gap-2 [&_*]:ez-p-2'>
+        <button>1</button>
+        <button>2</button>
+        <button>3</button>
       </div>
     </div>
   )

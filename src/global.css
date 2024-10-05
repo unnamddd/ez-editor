@@ -1,2 +1,7 @@
 @tailwind components;
 @tailwind utilities;
+
+[contenteditable]::selection {
+  background: transparent; /* Hides selection */
+  color: inherit; /* Keeps the text color unchanged */
+}
