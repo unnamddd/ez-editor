@@ -2,9 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-body > #root {
+body>#root {
   height: 100vh;
   display: flex;
   justify-items: center;
   align-items: center;
+  background: white;
+  color: black;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #333;
+    color: white;
+  }
 }

@@ -86,7 +86,7 @@ function Editor(): React.ReactNode {
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 })
   const [currentBlockId, setCurrentBlockId] = useState(null)
 
-  const caretPosition = useRef<number>(null!)
+  const caretPosition = useRef<number>(0)
 
   const blockRefs = useRef<Record<string, HTMLDivElement | HTMLInputElement>>({})
   const [pendingFocusBlockId, setPendingFocusBlockId] = useState(null)
@@ -134,8 +134,17 @@ function Editor(): React.ReactNode {
   }, [pendingFocusBlockId])
 
   const updateBlockContent = (blockId: any, content: any): void => {
+    console.log(caretPosition.current)
     const updatedBlocks = blocks.map((block: any) =>
-      block.id === blockId ? { ...block, content } : block,
+      block.id === blockId
+        ? {
+            ...block,
+            content:
+            (block.content?.slice(0, caretPosition.current) ?? '')
+            + (content ?? '')
+            + (block.content?.slice(caretPosition.current) ?? ''),
+          }
+        : block,
     )
     dispatch({ type: ACTION_TYPES.UPDATE_BLOCKS, blocks: updatedBlocks })
 
@@ -160,9 +169,11 @@ function Editor(): React.ReactNode {
 
     // Get the text node inside the div
     const textNode = editableDiv.firstChild
+    if (!textNode)
+      return
 
     // Ensure position is within bounds of the text node
-    const validPosition = Math.min(position, textNode.length)
+    const validPosition = Math.min(position, textNode?.length ?? 0)
 
     // Set caret at the new position
     range.setStart(textNode, validPosition)
@@ -178,11 +189,20 @@ function Editor(): React.ReactNode {
 
     const text = e.data
     const element = e.currentTarget
+
     e.preventDefault()
 
-    updateBlockContent(blockId, text)
-    console.dir(e.currentTarget?.firstChild)
+    if (!e.data)
+      return
 
+    if (!window.getSelection()?.isCollapsed) {
+      deleteSelection(blockId, element, text)
+    }
+    else {
+      updateBlockContent(blockId, text)
+    }
+
+    caretPosition.current += 1
     queueMicrotask(() => {
       setCaretPosition(element, caretPosition.current)
     })
@@ -238,25 +258,201 @@ function Editor(): React.ReactNode {
   }
 
   const deleteBlock = (blockId: any): void => {
+    const blockIndex = blocks.findIndex((block: any) => block.id === blockId)
     const updatedBlocks = blocks.filter((block: any) => block.id !== blockId)
     dispatch({ type: ACTION_TYPES.UPDATE_BLOCKS, blocks: updatedBlocks })
+
+    if (blocks.length > 0) {
+      const blockToFocus = blocks[blockIndex - 1]
+      const blockElement = document.getElementById(blockToFocus.id)
+
+      blockElement?.focus()
+      caretPosition.current = blockToFocus.content?.length ?? 0
+      queueMicrotask(() => {
+        setCaretPosition(blockElement, caretPosition.current)
+      })
+    }
 
     // Collaboration: Send updated content to collaborators
     sendCollaborativeUpdate(updatedBlocks)
   }
 
+  const deleteRightToCaret = (blockId: any): void => {
+    const currentBlock = blocks.find((block: any) => block.id === blockId)
+    const updatedBlocks = blocks.filter((block: any) => block.id !== blockId)
+    if (!currentBlock.content)
+      return
+
+    dispatch({
+      type: ACTION_TYPES.UPDATE_BLOCKS,
+      blocks: [
+        ...updatedBlocks,
+        {
+          ...currentBlock,
+          content:
+            currentBlock.content.slice(0, caretPosition.current)
+            + (currentBlock.content.slice(caretPosition.current + 1) ?? ''),
+        },
+      ],
+    })
+  }
+
+  const deleteLeftToCaret = (blockId: any): void => {
+    const currentBlock = blocks.find((block: any) => block.id === blockId)
+    const updatedBlocks = blocks.filter((block: any) => block.id !== blockId)
+    if (!currentBlock.content)
+      return
+
+    dispatch({
+      type: ACTION_TYPES.UPDATE_BLOCKS,
+      blocks: [
+        ...updatedBlocks,
+        {
+          ...currentBlock,
+          content:
+            currentBlock.content.slice(0, caretPosition.current - 1)
+            + (currentBlock.content.slice(caretPosition.current) ?? ''),
+        },
+      ],
+    })
+    caretPosition.current -= 1
+  }
+
+  const deleteSelection = (blockId: any, element: HTMLElement, replaceWith?: string): void => {
+    const selection = window.getSelection()
+    const currentBlock = blocks.find((block: any) => block.id === blockId)
+    const updatedBlocks = blocks.filter((block: any) => block.id !== blockId)
+
+    if (selection?.containsNode(element, true)) {
+      for (let rangeIndex = 0; rangeIndex < selection.rangeCount; rangeIndex++) {
+        const range = selection.getRangeAt(rangeIndex)
+        let start, end
+        if (element.compareDocumentPosition(range.startContainer) & Node.DOCUMENT_POSITION_CONTAINED_BY) {
+          start = range.startOffset
+        }
+        if (element.compareDocumentPosition(range.endContainer) & Node.DOCUMENT_POSITION_CONTAINED_BY) {
+          end = range.endOffset
+        }
+
+        if (start && end) {
+          dispatch({
+            type: ACTION_TYPES.UPDATE_BLOCKS,
+            blocks: [
+              ...updatedBlocks,
+              {
+                ...currentBlock,
+                content:
+                  currentBlock.content.slice(0, start)
+                  + (replaceWith ?? '')
+                  + (currentBlock.content.slice(end) ?? ''),
+              },
+            ],
+          })
+          caretPosition.current = start
+        }
+        else if (start && !end) {
+          console.log(start, 'no-end')
+          dispatch({
+            type: ACTION_TYPES.UPDATE_BLOCKS,
+            blocks: [
+              ...updatedBlocks,
+              {
+                ...currentBlock,
+                content:
+                  currentBlock.content.slice(0, start) + (replaceWith ?? ''),
+              },
+            ],
+          })
+          caretPosition.current = start
+        }
+        else if (!start && end) {
+          console.log(end, 'no-start')
+          dispatch({
+            type: ACTION_TYPES.UPDATE_BLOCKS,
+            blocks: [
+              ...updatedBlocks,
+              {
+                ...currentBlock,
+                content:
+                  (replaceWith ?? '')
+                  + currentBlock.content.slice(end) ?? '',
+              },
+            ],
+          })
+          caretPosition.current = 0
+        }
+      }
+    }
+  }
+
   const handleKeyDown = (e: any, blockId: any, index: any): void => {
+    const element = e.currentTarget
     if (e.key === 'Enter') {
       e.preventDefault()
       addNewBlock(index)
+      caretPosition.current = 0
+    }
+    else if (e.key === 'Delete') {
+      e.preventDefault()
+      const content = e.currentTarget.textContent
+      if (content !== '') {
+        const selection = window.getSelection()
+        if (selection?.isCollapsed) {
+          deleteRightToCaret(blockId)
+        }
+        else {
+          deleteSelection(blockId, element)
+        }
+      }
+
+      queueMicrotask(() => {
+        setCaretPosition(element, caretPosition.current)
+      })
     }
     else if (e.key === 'Backspace') {
-      // Handle block deletion if content is empty
-      // const block = blocks[index]
+      e.preventDefault()
       const content = e.currentTarget.textContent
       if (content === '' && blocks.length > 1) {
-        e.preventDefault()
         deleteBlock(blockId)
+      }
+      else {
+        const selection = window.getSelection()
+        if (selection?.isCollapsed) {
+          deleteLeftToCaret(blockId)
+        }
+        else {
+          deleteSelection(blockId, element)
+        }
+      }
+
+      queueMicrotask(() => {
+        setCaretPosition(element, caretPosition.current)
+      })
+    }
+    else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+    }
+    else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+    }
+    else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      if (e.shiftKey) {
+
+      }
+      else {
+        caretPosition.current = Math.max(caretPosition.current - 1, 0)
+        setCaretPosition(element, caretPosition.current)
+      }
+    }
+    else if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      if (e.shiftKey) {
+
+      }
+      else {
+        caretPosition.current = caretPosition.current + 1
+        setCaretPosition(element, caretPosition.current)
       }
     }
     else if (e.ctrlKey && e.key === 'z') {
@@ -276,6 +472,18 @@ function Editor(): React.ReactNode {
     }
   }, [externalUpdates])
 
+  const handleCopy = (e) => {
+    e.preventDefault()
+  }
+
+  const handlePaste = (e) => {
+    e.preventDefault()
+  }
+
+  const handleCut = (e) => {
+    e.preventDefault()
+  }
+
   const renderBlock = (block: any, index: any): React.ReactNode => {
     if (block.type === 'text') {
       return (
@@ -289,37 +497,28 @@ function Editor(): React.ReactNode {
           <button type="button">
             <DragIcon width={32} height={32} className="" />
           </button>
-          {
-            // focused === index
-            // ? (
-            //    <textarea
-            //      autoFocus
-            //      className="ez-bg-transparent ez-outline-none ez-border-none ez-w-full ez-box-border ez-resize-none ez-overflow-hidden"
-            //      rows={1}
-            //      value={block.content}
-            //      onChange={e => handleInput(e, block.id)}
-            //      onKeyDown={e => handleKeyDown(e, block.id, index)}
-            //      ref={el => (blockRefs.current[block.id] = el as any)}
-            //    />
-            //  )
-            // :
-            (
-              <div
-                ref={el => (blockRefs.current[block.id] = el as any)}
-                className="ez-bg-transparent ez-outline-none ez-border-none ez-whitespace-pre-wrap ez-w-full ez-h-full ez-text-start ez-cursor-text ez-min-w-0 ez-flex-grow ez-caret-transparent"
-                tabIndex={0}
-                contentEditable
-                suppressContentEditableWarning
-                onInput={e => handleInput(e, block.id)}
-                onBeforeInput={e => handleInput(e, block.id)}
-                onClick={handleEditableClick}
-                onKeyDown={e => handleKeyDown(e, block.id, index)}
-                onFocus={() => setFocused(index)}
-              >
-                {block.content}
-              </div>
-            )
-          }
+          <div
+            ref={el => (blockRefs.current[block.id] = el as any)}
+            id={block.id}
+            className="
+                  ez-bg-transparent ez-outline-none ez-border-none
+                  ez-whitespace-pre-wrap ez-w-full ez-h-full
+                  ez-text-start ez-cursor-text ez-min-w-0 ez-flex-grow
+                "
+            tabIndex={1}
+            contentEditable
+            suppressContentEditableWarning
+            onInput={e => handleInput(e, block.id)}
+            onBeforeInput={e => handleInput(e, block.id)}
+            onClick={handleEditableClick}
+            onKeyDown={e => handleKeyDown(e, block.id, index)}
+            onFocus={() => setFocused(index)}
+            onCopy={handleCopy}
+            onPaste={handlePaste}
+            onCut={handleCut}
+          >
+            {block.content}
+          </div>
         </div>
       )
     }
@@ -376,7 +575,7 @@ function Editor(): React.ReactNode {
         </button>
       </div>
 
-      <div id="toolbar" className='ez-fixed ez-left-0 ez-top-0 ez-p-2 ez-flex ez-gap-2 [&_*]:ez-p-2'>
+      <div id="toolbar" className="ez-fixed ez-left-0 ez-top-0 ez-p-2 ez-flex ez-gap-2 [&_*]:ez-p-2">
         <button>1</button>
         <button>2</button>
         <button>3</button>
