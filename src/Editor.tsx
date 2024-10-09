@@ -1,81 +1,61 @@
 import type { ChangeEvent, RefObject } from 'react'
+import type { HistoryGraph, historyWithTreeExample } from './historyTree'
+import type { ImmutableTreeOrderedList } from './immutableTreeOrderedList'
 import React, { useEffect, useReducer, useRef, useState } from 'react'
 import DragIcon from './DragIcon'
 
-// Example components that can be inserted
-function CustomComponent1(): React.ReactNode {
-  return <div style={{ background: '#e0f7fa' }}>📊 Chart Component</div>
-}
-function CustomComponent2(): React.ReactNode {
-  return <div style={{ background: '#fce4ec' }}>📷 Image Component</div>
+// Define action types as string constants
+const ADD_ELEMENT = 'ADD_ELEMENT'
+const REMOVE_ELEMENT = 'REMOVE_ELEMENT'
+const UNDO = 'UNDO'
+const REDO = 'REDO'
+
+// Action type definitions
+type Action<T> =
+  | { type: typeof ADD_ELEMENT, payload: T }
+  | { type: typeof REMOVE_ELEMENT, payload: number }
+  | { type: typeof UNDO }
+  | { type: typeof REDO }
+
+// Reducer state type
+interface ReducerState<T> {
+  historyGraph: HistoryGraph<ImmutableTreeOrderedList<T>>
 }
 
-const componentMapping = {
-  Component1: CustomComponent1,
-  Component2: CustomComponent2,
-}
 
-// Action Types for Reducer
-const ACTION_TYPES = {
-  UPDATE_BLOCKS: 'UPDATE_BLOCKS',
-  UNDO: 'UNDO',
-  REDO: 'REDO',
-}
+const initialEditorState: ReducerState<string> = {
+  historyGraph: initialHistory,
+};
 
-function actions({
-  action,
-  past,
-  present,
-  future,
-  state,
-}: any): any {
-  return {
-    [ACTION_TYPES.UPDATE_BLOCKS]: () => ({
-      past: [...past, present],
-      present: action.blocks,
-      future: [],
-    }),
-    [ACTION_TYPES.UNDO]: () => {
-      if (past.length === 0)
-        return state
-      const previous = past[past.length - 1]
-      return {
-        past: past.slice(0, past.length - 1),
-        present: previous,
-        future: [present, ...future],
-      }
+// Reducer function with typed action and state
+function editorReducer<T>(state: ReducerState<T>, action: Action<T>): ReducerState<T> {
+  const { historyGraph } = state
+  const currentTree = historyGraph.getCurrentState()
+
+  const actions = {
+    [ADD_ELEMENT]: () => {
+      const newTreeAfterAdd = currentTree.add(action.payload)
+      historyGraph.performAction(newTreeAfterAdd)
+      return { historyGraph }
     },
-    [ACTION_TYPES.REDO]: () => {
-      if (future.length === 0)
-        return state
-      const next = future[0]
-      return {
-        past: [...past, present],
-        present: next,
-        future: future.slice(1),
-      }
+    [REMOVE_ELEMENT]: () => {
+      const newTreeAfterRemove = currentTree.remove(action.payload)
+      historyGraph.performAction(newTreeAfterRemove)
+      return { historyGraph }
     },
-
+    [UNDO]: () => {
+      historyGraph.undo()
+      return { historyGraph }
+    },
+    [REDO]: () => {
+      historyGraph.redo()
+      return { historyGraph }
+    },
   }
+  return action.type in actions ? actions[action.type]() : state
 }
 
-// Reducer Function for History Management
-function editorReducer(state: any, action: any): any {
-  const { past, present, future } = state
-  return actions({
-    action,
-    past,
-    present,
-    future,
-    state,
-  })[action.type]() ?? state
-}
 
-const initialEditorState = {
-  past: [],
-  present: [{ id: Date.now(), type: 'text' }],
-  future: [],
-}
 
 function Editor(): React.ReactNode {
   const [state, dispatch] = useReducer(editorReducer, initialEditorState)
@@ -94,7 +74,7 @@ function Editor(): React.ReactNode {
   // Collaboration: Simulated external updates (placeholder for real collaboration logic)
   const [
     externalUpdates,
-    // setExternalUpdates
+    setExternalUpdates,
   ] = useState(null)
 
   const handleUndo = (): void => {
@@ -133,8 +113,11 @@ function Editor(): React.ReactNode {
     }
   }, [pendingFocusBlockId])
 
-  const updateBlockContent = (blockId: any, content: any): void => {
-    console.log(caretPosition.current)
+  const updateBlockContent = (blockId: any, content: any, element: HTMLElement): void => {
+    if (element.clientWidth < element.scrollWidth) {
+      // split logic goes here
+      console.log('tweakin')
+    }
     const updatedBlocks = blocks.map((block: any) =>
       block.id === blockId
         ? {
@@ -184,9 +167,11 @@ function Editor(): React.ReactNode {
     selection.addRange(range)
   }
 
-  const handleInput = (e: any, blockId: any): void => {
-    // Update the state without causing re-renders of the contentEditable div
+  const handleLineSplit = (element: HTMLElement) => {
 
+  }
+
+  const handleInput = (e: any, blockId: any): void => {
     const text = e.data
     const element = e.currentTarget
 
@@ -199,7 +184,7 @@ function Editor(): React.ReactNode {
       deleteSelection(blockId, element, text)
     }
     else {
-      updateBlockContent(blockId, text)
+      updateBlockContent(blockId, text, element)
     }
 
     caretPosition.current += 1
@@ -385,11 +370,20 @@ function Editor(): React.ReactNode {
     }
   }
 
-  const handleKeyDown = (e: any, blockId: any, index: any): void => {
+  const addNewLine = (blockId: any): void => {
+
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, blockId: any, index: any): void => {
     const element = e.currentTarget
     if (e.key === 'Enter') {
       e.preventDefault()
-      addNewBlock(index)
+      if (!e.shiftKey) {
+        addNewBlock(index)
+      }
+      else {
+        addNewLine(blockId)
+      }
       caretPosition.current = 0
     }
     else if (e.key === 'Delete') {
@@ -486,10 +480,12 @@ function Editor(): React.ReactNode {
 
   const renderBlock = (block: any, index: any): React.ReactNode => {
     if (block.type === 'text') {
+      console.log(block.content)
       return (
         <div
           key={block.id}
           className="
+            ez-overflow-hidden
             before:ez--ml-1 before:ez-absolute before:ez-rounded-md focus-within:before:ez-block focus-within:before:ez-bg-cyan-200 before:ez-h-full before:ez-w-1
             ez-relative ez-flex ez-gap-2 ez-w-full ez-text-xl ez-h-max ez-items-center
           "
@@ -497,27 +493,29 @@ function Editor(): React.ReactNode {
           <button type="button">
             <DragIcon width={32} height={32} className="" />
           </button>
-          <div
-            ref={el => (blockRefs.current[block.id] = el as any)}
-            id={block.id}
-            className="
-                  ez-bg-transparent ez-outline-none ez-border-none
-                  ez-whitespace-pre-wrap ez-w-full ez-h-full
-                  ez-text-start ez-cursor-text ez-min-w-0 ez-flex-grow
-                "
-            tabIndex={1}
-            contentEditable
-            suppressContentEditableWarning
-            onInput={e => handleInput(e, block.id)}
-            onBeforeInput={e => handleInput(e, block.id)}
-            onClick={handleEditableClick}
-            onKeyDown={e => handleKeyDown(e, block.id, index)}
-            onFocus={() => setFocused(index)}
-            onCopy={handleCopy}
-            onPaste={handlePaste}
-            onCut={handleCut}
-          >
-            {block.content}
+          <div className="ez-w-full ez-overflow-hidden">
+            <div
+              ref={el => (blockRefs.current[block.id] = el as any)}
+              id={block.id}
+              className="
+                    ez-bg-transparent ez-outline-none ez-border-none
+                    ez-whitespace-pre-wrap ez-w-full ez-h-full
+                    ez-text-start ez-cursor-text ez-min-w-0 ez-flex-grow
+                    ez-text-nowrap
+                  "
+              tabIndex={1}
+              contentEditable
+              suppressContentEditableWarning
+              onBeforeInput={e => handleInput(e, block.id)}
+              onClick={handleEditableClick}
+              onKeyDown={e => handleKeyDown(e, block.id, index)}
+              onFocus={() => setFocused(index)}
+              onCopy={handleCopy}
+              onPaste={handlePaste}
+              onCut={handleCut}
+            >
+              {block.content}
+            </div>
           </div>
         </div>
       )
@@ -582,6 +580,6 @@ function Editor(): React.ReactNode {
       </div>
     </div>
   )
-};
+}
 
 export default Editor
